@@ -47,6 +47,11 @@ selected_comm2 = st.sidebar.selectbox(
 )
 search_query2 = st.sidebar.text_input("Or Search Commodity 2 Name:", "", key="search2")
 
+# --- Forecast Steps Option ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("Forecasting Settings")
+forecast_steps = st.sidebar.slider("Months to Forecast into Future:", min_value=1, max_value=24, value=12)
+
 # --- Filter Data Logic ---
 data_slices = []
 labels = []
@@ -78,7 +83,7 @@ elif selected_comm2 != "-- Empty --":
 # --- Combine Data ---
 if data_slices:
     combined_filtered_data = pd.concat(data_slices).drop_duplicates()
-    display_title = " 🆚 ".join(labels) if len(labels) > 1 else labels[0]
+    display_title = " 🆚 ".join(labels) if len(labels) > 1 else labels
     st.subheader(f"📊 Visualizing: {display_title}")
     
     # Display raw filtered dataset slice
@@ -115,23 +120,24 @@ else:
 
 # --- SARIMAX Modeling Section ---
 st.markdown("---")
-st.subheader("🤖 Time Series Forecasting (SARIMAX Model)")
+st.subheader("🤖 Time Series Forecasting & Future Prediction")
 
 col_btn1, col_btn2 = st.columns(2)
 
-# Forecast Model for Commodity 1 (Only if active)
+# Forecast Model for Commodity 1
 if selected_comm1 != "-- Empty --":
     if col_btn1.button(f"Forecast for '{selected_comm1}'"):
         commodity_ts_data = wpimonthly_df[wpimonthly_df['COMM_NAME'].str.strip() == selected_comm1]
         
         if not commodity_ts_data.empty:
-            with st.spinner(f"Fitting SARIMAX model for {selected_comm1}..."):
+            with st.spinner(f"Fitting SARIMAX model and predicting future for {selected_comm1}..."):
                 ts_data = commodity_ts_data[index_cols].T
                 ts_data.columns = ['Index_Value']
                 ts_data.index = pd.to_datetime([col[4:] for col in ts_data.index], format='%m%Y')
                 ts_data = ts_data.sort_index()
                 ts_data.index.freq = 'MS'
                 
+                # Fit Model
                 model = SARIMAX(
                     ts_data['Index_Value'],
                     order=(1, 1, 1),
@@ -141,32 +147,51 @@ if selected_comm1 != "-- Empty --":
                 )
                 sarimax_results = model.fit(disp=False)
                 
-                fig_m1, ax_m1 = plt.subplots(figsize=(8, 4))
-                ax_m1.plot(ts_data.index, ts_data['Index_Value'], label='Actual Index')
-                ax_m1.plot(ts_data.index, sarimax_results.fittedvalues, color='red', linestyle='--', label='SARIMAX Fitted')
-                ax_m1.set_title(f'{selected_comm1}: Actual vs Fitted')
+                # Generate Future Out-Of-Sample Predictions
+                forecast_res = sarimax_results.get_forecast(steps=forecast_steps)
+                forecast_index = forecast_res.predicted_mean.index
+                forecast_values = forecast_res.predicted_mean.values
+                
+                # Create DataFrame for raw forecasting numbers
+                forecast_df = pd.DataFrame({
+                    'Predicted Date': forecast_index.strftime('%Y-%m-%d'),
+                    'Forecasted Index Value': forecast_values
+                }).set_index('Predicted Date')
+                
+                # Plotting actual vs fitted vs forecast
+                fig_m1, ax_m1 = plt.subplots(figsize=(10, 5))
+                ax_m1.plot(ts_data.index, ts_data['Index_Value'], label='Actual Historical Index', linewidth=2)
+                ax_m1.plot(ts_data.index, sarimax_results.fittedvalues, color='orange', linestyle='--', label='SARIMAX Fitted Model')
+                ax_m1.plot(forecast_index, forecast_values, color='red', marker='o', linestyle='-', label=f'Future {forecast_steps}-Month Forecast')
+                ax_m1.set_title(f'{selected_comm1}: Historical Data & Future Forecast Trends', fontsize=12, fontweight='bold')
                 ax_m1.legend()
                 ax_m1.grid(True, linestyle='--', alpha=0.5)
-                st.pyplot(fig_m1)
-                st.text(f"AIC: {sarimax_results.aic:.2f} | BIC: {sarimax_results.bic:.2f}")
+                col_btn1.pyplot(fig_m1)
+                
+                col_btn1.markdown(f"**Model Stats:** AIC: {sarimax_results.aic:.2f} | BIC: {sarimax_results.bic:.2f}")
+                
+                # Expandable Raw Forecast Table
+                with col_btn1.expander(f"📋 View Raw SARIMAX Forecast Predictions Data ({selected_comm1})"):
+                    st.dataframe(forecast_df)
         else:
-            st.error(f"Could not fit model for {selected_comm1}.")
+            col_btn1.error(f"Could not fit model for {selected_comm1}.")
 else:
     col_btn1.info("Select a commodity in Primary Selection to run a forecast.")
 
-# Forecast Model for Commodity 2 (Only if active)
+# Forecast Model for Commodity 2
 if selected_comm2 != "-- Empty --":
     if col_btn2.button(f"Forecast for '{selected_comm2}'"):
         commodity_ts_data = wpimonthly_df[wpimonthly_df['COMM_NAME'].str.strip() == selected_comm2]
         
         if not commodity_ts_data.empty:
-            with st.spinner(f"Fitting SARIMAX model for {selected_comm2}..."):
+            with st.spinner(f"Fitting SARIMAX model and predicting future for {selected_comm2}..."):
                 ts_data = commodity_ts_data[index_cols].T
                 ts_data.columns = ['Index_Value']
                 ts_data.index = pd.to_datetime([col[4:] for col in ts_data.index], format='%m%Y')
                 ts_data = ts_data.sort_index()
                 ts_data.index.freq = 'MS'
                 
+                # Fit Model
                 model = SARIMAX(
                     ts_data['Index_Value'],
                     order=(1, 1, 1),
@@ -176,15 +201,21 @@ if selected_comm2 != "-- Empty --":
                 )
                 sarimax_results = model.fit(disp=False)
                 
-                fig_m2, ax_m2 = plt.subplots(figsize=(8, 4))
-                ax_m2.plot(ts_data.index, ts_data['Index_Value'], label='Actual Index')
-                ax_m2.plot(ts_data.index, sarimax_results.fittedvalues, color='blue', linestyle='--', label='SARIMAX Fitted')
-                ax_m2.set_title(f'{selected_comm2}: Actual vs Fitted')
+                # Generate Future Out-Of-Sample Predictions
+                forecast_res = sarimax_results.get_forecast(steps=forecast_steps)
+                forecast_index = forecast_res.predicted_mean.index
+                forecast_values = forecast_res.predicted_mean.values
+                
+                # Create DataFrame for raw forecasting numbers
+                forecast_df = pd.DataFrame({
+                    'Predicted Date': forecast_index.strftime('%Y-%m-%d'),
+                    'Forecasted Index Value': forecast_values
+                }).set_index('Predicted Date')
+                
+                # Plotting actual vs fitted vs forecast
+                fig_m2, ax_m2 = plt.subplots(figsize=(10, 5))
+                ax_m2.plot(ts_data.index, ts_data['Index_Value'], label='Actual Historical Index', linewidth=2)
+                ax_m2.plot(ts_data.index, sarimax_results.fittedvalues, color='orange', linestyle='--', label='SARIMAX Fitted Model')
+                ax_m2.plot(forecast_index, forecast_values, color='blue', marker='o', linestyle='-', label=f'Future {forecast_steps}-Month Forecast')
+                ax_m2.set_title(f'{selected_comm2}: Historical Data & Future Forecast Trends', fontsize=12, fontweight='bold')
                 ax_m2.legend()
-                ax_m2.grid(True, linestyle='--', alpha=0.5)
-                st.pyplot(fig_m2)
-                st.text(f"AIC: {sarimax_results.aic:.2f} | BIC: {sarimax_results.bic:.2f}")
-        else:
-            st.error(f"Could not fit model for {selected_comm2}.")
-else:
-    col_btn2.info("Select a commodity in Comparison Selection to run a forecast.")
